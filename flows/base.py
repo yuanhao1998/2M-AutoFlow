@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from anchors.anchors import ImageDir, Anchor
 from conf.env import get_env
-from fsm.state import State, Signal, Back, Stay
+from fsm.state import State, Signal, Back, Stay, Done
 from target.target import Target
 
 
@@ -165,9 +165,22 @@ class TipsWindow(State):
         return Back()
 
 
+class LastDeviceWindow(State):
+    name = "最后一台云机弹框"
+    priority = 997
+    # 用 capture_anchor.py 截取弹框中的文字区域，填入下方：
+    signature = [Anchor(ref=base_img["最后一台云机提示文字"])]
+
+    def handle(self, ctx) -> Signal:
+        self.log.info("检测到最后一台云机，停止流程")
+        ctx.run_state.stopped = True
+        return Done()
+
+
 def build_base_registry() -> StateRegistry:
     reg = StateRegistry()
     reg.register(Death())
     reg.register(NetworkErrorWindow())
     reg.register(TipsWindow())
+    reg.register(LastDeviceWindow())
     return reg

@@ -97,7 +97,10 @@ def main() -> None:
         ok = engine.run_until(goal=None)
         logger.info("本轮结果: %s", "完成" if ok else "未完成")
 
-    repeat = args.repeat or int(cfg.get("stats", {}).get("total_accounts", 1))
+    # repeat: 命令行指定 > config 配置 > 默认无限（靠 LastDeviceWindow 弹框停止）
+    repeat = args.repeat
+    if repeat is None:
+        repeat = int(cfg.get("stats", {}).get("total_accounts", 0)) or 9999
     runner = FlowRunner(run_state, repeat=repeat,
                         hotkeys=cfg.get("hotkeys"),
                         switch=switch_device)

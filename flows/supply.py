@@ -35,23 +35,20 @@ class HomeStateEnum(int, Enum):
 class Home(State):
     name = "主城界面"
     priority = 10
-    signature = [
-        Anchor(ref=base_img["挂机界面判断-齿轮"])
-    ]
+    signature = []
     state = HomeStateEnum.default
 
     def match(self, ctx: Ctx) -> bool:
-        """齿轮必须命中，且（安全区提示 或 补给商人名称）任一命中。"""
-        if not ctx.find_anchor(Anchor(ref=base_img["挂机界面判断-齿轮"])).matched:
-            return False
-        a1 = ctx.find_anchor(Anchor(text="안전", ref=base_img["地图安全区提示"]))
-        a2 = ctx.find_anchor(Anchor(text="잡화 상인", ref=supply_img["补给商人名称"]))
-        return a1.matched or a2.matched
+        """安全区提示 或 补给商人名称 任一命中即为首页。"""
+        a1 = ctx.find_anchor(Anchor(text="안전", ref=base_img["地图区域提示"]))
+        a2 = ctx.find_anchor(Anchor(text="격전의 섬", ref=base_img["地图名称"]))
+        a3 = ctx.find_anchor(Anchor(text="잡화 상인", ref=supply_img["补给商人名称"]))
+        return (a1.matched and not a2.matched) or a3.matched
 
     def handle(self, ctx) -> Signal:
         self.log.info("当前State： %s" % self.state)
         if self.state == HomeStateEnum.default:
-            if ctx.find_anchor(Anchor(text="안전", ref=base_img["地图安全区提示"])).matched or not ctx.find_anchor(Anchor(text="잡화 상인", ref=supply_img["补给商人名称"])).matched:
+            if ctx.find_anchor(Anchor(text="안전", ref=base_img["地图区域提示"])).matched or not ctx.find_anchor(Anchor(text="잡화 상인", ref=supply_img["补给商人名称"])).matched:
                 ctx.click(Target.at(*OpenNPCList))
                 self.log.info("打开 NPC 列表")
                 ctx.wait(2)
@@ -69,7 +66,7 @@ class Home(State):
 
 class AFK(State):
     name = "野外挂机"
-    signature = [Anchor(ref=base_img["挂机界面判断-齿轮"])]
+    signature = [Anchor(ref=base_img["金币图案判断"])]
     auto_attack = False  # True=传送到达后开启自动攻击，False=正常回城
 
     def handle(self, ctx) -> Signal:

@@ -16,6 +16,36 @@ from target.target import Target
 logger = logging.getLogger(__name__)
 
 
+def _edit_distance_1(a: str, b: str) -> bool:
+    """检查两个字符串的编辑距离是否 ≤1（替换/插入/删除各算 1）。"""
+    if abs(len(a) - len(b)) > 1:
+        return False
+    # 等长 → 检查是否至多一个字符不同
+    if len(a) == len(b):
+        diff = 0
+        for ca, cb in zip(a, b):
+            if ca != cb:
+                diff += 1
+                if diff > 1:
+                    return False
+        return True
+    # a 比 b 长 1 → 检查是否删除 a 中某个字符可得 b
+    if len(a) > len(b):
+        longer, shorter = a, b
+    else:
+        longer, shorter = b, a
+    i = j = 0
+    while i < len(longer) and j < len(shorter):
+        if longer[i] != shorter[j]:
+            i += 1
+            if i - j > 1:
+                return False
+        else:
+            i += 1
+            j += 1
+    return True
+
+
 class StopFlow(Exception):
     """请求立即终止流程。"""
 
@@ -70,6 +100,36 @@ class Ctx:
             return self._match_text(anchor)
         return self._match_image(anchor)
 
+    def debug_anchor(self, anchor: Anchor) -> None:
+        """调试用：打印 Anchor 在当前截图中的 OCR 识别结果。
+
+        用法（在 State.handle/match 中调用）:
+            ctx.debug_anchor(Anchor(text="안전", ref=base_img["地图安全区提示"]))
+        """
+        if anchor.text is None:
+            logger.info("[debug_anchor] 仅支持文字锚点")
+            return
+        from core.ocr import _get_reader
+        off_x, off_y = 0, 0
+        if anchor.region is not None:
+            r = self.calibrator.to_screen_region(anchor.region)
+            left, top, right, bottom = r
+            left, top = max(0, left), max(0, top)
+            right = min(self.screen_bgr.shape[1], right)
+            bottom = min(self.screen_bgr.shape[0], bottom)
+            if right <= left or bottom <= top:
+                logger.info("[debug_anchor] 区域无效")
+                return
+            sub = self.screen_bgr[top:bottom, left:right]
+            off_x, off_y = left, top
+        else:
+            sub = self.screen_bgr
+        reader = _get_reader()
+        results = reader.readtext(sub, detail=1)
+        detected = [(d, round(c, 3)) for _, d, c in results]
+        logger.info("[debug_anchor] 查询=\"%s\" 识别=%s 区域=%s",
+                   anchor.text, detected, anchor.region)
+
     def _match_image(self, anchor: Anchor) -> Match:
         """cv2.matchTemplate 模板匹配。"""
         region = None
@@ -82,8 +142,9 @@ class Ctx:
     def _match_text(self, anchor: Anchor) -> Match:
         """EasyOCR 文字定位：在 region 内搜索 anchor.text。
 
-        支持空格分隔的多词匹配：EasyOCR 按词检测，\"잡화 상인\" 可能
-        被识别为 \"잡화\" 和 \"상인\" 两个独立文本块，需要跨块匹配。
+        支持：
+        - 空格分隔的多词跨块匹配
+        - 编辑距离 ≤1 的模糊匹配（≥3 字符时生效，容忍 OCR 单字错误）
         """
         from core.ocr import _get_reader
         off_x, off_y = 0, 0
@@ -104,10 +165,11 @@ class Ctx:
         results = reader.readtext(sub, detail=1)
         query_compact = anchor.text.replace(" ", "").lower()
 
-        # 方式1：单个 OCR 结果包含完整 query（无空格或 EasyOCR 未分词）
         best_conf = 0.0
+        # 方式1：精确匹配 — 单个 OCR 结果包含完整 query
         for bbox, detected, conf in results:
-            if query_compact in detected.replace(" ", "").lower():
+            detected_clean = detected.replace(" ", "").lower()
+            if query_compact in detected_clean:
                 l = int(bbox[0][0]) + off_x
                 t = int(bbox[0][1]) + off_y
                 r = int(bbox[2][0]) + off_x
@@ -115,7 +177,20 @@ class Ctx:
                 return Match(True, float(conf), (l, t, r, b), 1.0)
             best_conf = max(best_conf, float(conf))
 
-        # 方式2：query 含空格，EasyOCR 分词了 → 跨块匹配所有词
+        # 方式2：模糊匹配 — 编辑距离 ≤1（仅 ≥3 字符时生效）
+        if len(query_compact) >= 3:
+            for bbox, detected, conf in results:
+                detected_clean = detected.replace(" ", "").lower()
+                if _edit_distance_1(query_compact, detected_clean):
+                    logger.info("模糊匹配: OCR=\"%s\" → 查询=\"%s\"",
+                               detected, anchor.text)
+                    l = int(bbox[0][0]) + off_x
+                    t = int(bbox[0][1]) + off_y
+                    r = int(bbox[2][0]) + off_x
+                    b = int(bbox[2][1]) + off_y
+                    return Match(True, float(conf), (l, t, r, b), 1.0)
+
+        # 方式3：多词匹配 — query 含空格，OCR 分词了 → 跨块（含模糊）
         query_words = [w.strip().lower() for w in anchor.text.split() if w.strip()]
         if len(query_words) > 1:
             matched: list[list] = []
@@ -123,12 +198,15 @@ class Ctx:
             for bbox, detected, conf in results:
                 detected_clean = detected.replace(" ", "").lower()
                 for w in query_words:
-                    if w not in seen_words and w in detected_clean:
+                    if w in seen_words:
+                        continue
+                    if w in detected_clean or (
+                        len(w) >= 3 and _edit_distance_1(w, detected_clean)
+                    ):
                         matched.append(bbox)
                         seen_words.add(w)
                         break
             if len(matched) >= len(query_words):
-                # 用所有匹配框的包围盒作为结果区域
                 all_x = [p[0] for b in matched for p in b]
                 all_y = [p[1] for b in matched for p in b]
                 l = int(min(all_x)) + off_x
