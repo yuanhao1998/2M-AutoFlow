@@ -68,8 +68,14 @@ def _load_regions(directory: Path) -> dict:
     try:
         from ruamel.yaml import YAML
         yaml = YAML(typ="safe")
-        data = yaml.load(yf.read_text(encoding="utf-8")) or {}
-        return dict(data)
+        # 编码回退：UTF-8 → GBK → GB2312（Windows 中文环境可能产生 GBK 文件）
+        for enc in ("utf-8", "gbk", "gb2312"):
+            try:
+                data = yaml.load(yf.read_text(encoding=enc)) or {}
+                return dict(data)
+            except (UnicodeDecodeError, LookupError):
+                continue
+        return {}
     except Exception:
         return {}
 

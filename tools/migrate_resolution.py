@@ -63,13 +63,23 @@ def _run_event_tap():
     Quartz.CFRunLoopRun()
 
 
+def _read_yaml_file(path: Path) -> dict:
+    """读取 YAML 文件，编码回退：UTF-8 → GBK → GB2312。"""
+    yaml = YAML(typ="safe")
+    for enc in ("utf-8", "gbk", "gb2312"):
+        try:
+            return yaml.load(path.read_text(encoding=enc)) or {}
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return {}
+
+
 def load_all_regions(images_dir: Path) -> dict[str, dict[str, list | None]]:
     """加载 images/ 下所有 regions.yaml。返回 {dir_name: {key: region}}。"""
     result: dict[str, dict[str, list | None]] = {}
-    yaml = YAML(typ="safe")
     for rf in sorted(images_dir.rglob("regions.yaml")):
         dir_name = str(rf.parent.relative_to(images_dir))
-        data = yaml.load(rf.read_text(encoding="utf-8")) or {}
+        data = _read_yaml_file(rf)
         result[dir_name] = {
             k: (list(v) if v is not None else None) for k, v in data.items()
         }
@@ -210,11 +220,9 @@ class MigrateTool:
 
     def _update_progress(self):
         total = len(self._queue)
-        done = sum(1 for _, key, _ in self._queue[:self._current]
-                   if self._target.joinpath(  # 检查是否已保存
-                       *self._queue[self._queue.index((subdir, key, _))][0].split("/"),
-                       f"{key}.png").exists()
-                   )
+        # 已保存：目标目录中存在对应 .png 文件
+        done = sum(1 for sd, k, _ in self._queue[:self._current]
+                   if (self._target / sd / f"{k}.png").exists())
         if self._current < total:
             subdir, key, _ = self._queue[self._current]
             self.progress_var.set(
@@ -315,11 +323,10 @@ class MigrateTool:
         yf = save_dir / "regions.yaml"
         yaml = YAML()
         yaml.default_flow_style = None
-        data: dict = {}
-        if yf.is_file():
-            data = yaml.load(yf.read_text(encoding="utf-8")) or {}
+        data: dict = _read_yaml_file(yf) if yf.is_file() else {}
         data[key] = list(region)
-        yaml.dump(data, yf)
+        with open(yf, "w", encoding="utf-8") as f:
+            yaml.dump(data, f)
 
     # ---- 坐标 & 画布 ----
     def _to_orig(self, cx: float, cy: float) -> tuple[int, int]:

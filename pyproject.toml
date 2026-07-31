@@ -9,7 +9,7 @@ dependencies = [
     "easyocr",
     "pyautogui",
     "pynput",
-    "opencv-python-headless",
+    "opencv-python-headless>=4.11,<5.0",
     "ruamel.yaml",
     "numpy",
     "python-doctr",

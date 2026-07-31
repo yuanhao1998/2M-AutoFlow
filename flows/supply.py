@@ -5,6 +5,7 @@ from enum import Enum
 
 from anchors.anchors import ImageDir
 from flows.base import build_base_registry, Death
+from fsm.context import Ctx
 from fsm.registry import StateRegistry
 from fsm.state import *
 from target.target import Target
@@ -68,6 +69,10 @@ class AFK(State):
     name = "野外挂机"
     signature = [Anchor(ref=base_img["金币图案判断"])]
     auto_attack = False  # True=传送到达后开启自动攻击，False=正常回城
+
+    def match(self, ctx: Ctx) -> bool:
+        print(ctx.find_anchor(Anchor(ref=base_img["金币图案判断"])).confidence)
+        return super().match(ctx)
 
     def handle(self, ctx) -> Signal:
         if self.auto_attack:

@@ -13,8 +13,8 @@ calib:
   coarse_scales_step: 0.02             # 标定粗扫步长
   threshold: 0.80                      # 标定匹配阈值
   # 手动标定（两者都非 null 时跳过自动标定，直接使用此值）
-  manual_scale: 1.0                   # 手动缩放比，如 1.0
-  manual_origin: [0, 0]               # 手动原点 [x, y]，如 [0, 0]
+  manual_scale: null                   # 手动缩放比，如 1.0
+  manual_origin: null               # 手动原点 [x, y]，如 [0, 0]
 
 match:
   threshold: 0.85            # 模板匹配默认阈值
